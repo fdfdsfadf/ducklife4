@@ -15,5 +15,55 @@
   </head>
   <body style="width:100%; height:100%; margin:0">
     <div id="gameContainer" style="width:100%; height:100%;"></div>
+    <script>
+(function() {
+    const UNITY_DB_PATH = '/idbfs'; 
+    const CHECK_INTERVAL_MS = 5000; 
+
+    // 1. SAVE: Periodically check for file changes
+    setInterval(async () => {
+        if (typeof FS === 'undefined') return; 
+        try {
+            const filePath = `${UNITY_DB_PATH}/PlayerPrefs`;
+            const stream = FS.open(filePath, 'r');
+            if (stream) {
+                const stat = FS.stat(filePath);
+                const buf = new Uint8Array(stat.size);
+                FS.read(stream, buf, 0, stat.size, 0);
+                FS.close(stream);
+                
+                const base64Data = btoa(String.fromCharCode.apply(null, buf));
+                window.parent.postMessage({
+                    type: "GAME_SAVE",
+                    key: "unity_save_file_v1", 
+                    value: base64Data,
+                    gameId: window.location.pathname
+                }, "*"); 
+            }
+        } catch (e) {}
+    }, CHECK_INTERVAL_MS); 
+
+    // 2. LOAD: Write data back to FS
+    window.addEventListener("message", (event) => {
+        if (event.data.type === "LOAD_SAVE") {
+            const base64Data = event.data.payload["unity_save_file_v1"];
+            if (base64Data && typeof FS !== 'undefined') {
+                try {
+                    const binaryString = atob(base64Data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const filePath = `${UNITY_DB_PATH}/PlayerPrefs`;
+                    const stream = FS.open(filePath, 'w+');
+                    FS.write(stream, bytes, 0, bytes.length, 0);
+                    FS.close(stream);
+                    FS.syncfs(false, () => console.log("[Bridge] Save Restored to Engine"));
+                } catch(e) { console.error(e); }
+            }
+        }
+    });
+})();
+</script>
   </body>
   </html> 
